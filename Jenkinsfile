@@ -1,94 +1,50 @@
 pipeline {
-    agent any
+    agent { label 'linuxgit' }
 
     environment {
-        // Name must match your SonarQube server configuration in Jenkins
-        SONARQUBE_ENV = 'MySonarQubeServer'
-        BUILD_DIR = 'build'
+        GIT_REPO = 'https://github.com/Lavanyabn1997/pipeline-ec2-user.git'
+        BRANCH = 'main'
     }
 
     stages {
-        stage('Checkout') {
+        stage('clean Workspace') {
             steps {
-                echo 'Checking out source code...'
-                checkout scm
+                echo 'cleaning Workspace'
+                deletedir()
             }
         }
-
-        stage('Clean Workspace') {
+        stage('Lint') {
             steps {
-                echo 'Cleaning workspace...'
-                sh 'rm -rf ${BUILD_DIR}'
+                echo "cloning the repo from github.........."
+                git branch: "${BRANCH}",
+                    url: "${GIT_REPO}"
+                    credentialsId: 'github'
             }
         }
-
-        stage('Lint Code') {
+        stage('build') {
             steps {
-                echo 'Running cppcheck for static analysis...'
-                // Run cppcheck and save the report
-                sh '''
-                cppcheck --enable=all --inconclusive --xml --xml-version=2 src 2> cppcheck-report.xml || true
-                '''
-            }
-        }
-
-        stage('Build') {
-            steps {
-                echo '⚙ Building the project using build.sh...'
+                sh 'dos2unix build.sh'
                 sh 'chmod +x build.sh'
-                sh './build.sh'
+                sh 'bash build.sh'
             }
         }
-
-        stage('Unit Test') {
+        stage('push build to artifactory') {
             steps {
-                echo 'Running basic test (verify output)...'
-                sh '''
-                if ./build/MyApp | grep -q "Hello from C program"; then
-                    echo "Test Passed!"
-                else
-                    echo "Test Failed!"
-                    exit 1
-                fi
-                '''
+                script {
+                    def server = Artifactory.server
+                    def uploadSpec = """ {
+                    "files": [
+                    {
+                    "pattern": "*.bin",
+                    "target": "generic-local/build/${env.JOB_NAME}/${env.BUILD_NUMBER}/"
+                    }
+                ]
+              }
             }
+          }               
         }
+      }
+   }
 
-        stage('SonarQube Analysis') {
-            environment {
-                // Set SonarQube scanner path if installed manually
-                PATH = "/opt/sonar-scanner/bin:${PATH}"
-            }
-            steps {
-                echo 'Running SonarQube analysis...'
-                withSonarQubeEnv("${SONARQUBE_ENV}") {
-                    sh '''
-                    sonar-scanner \
-                        -Dsonar.projectKey=MyCProject \
-                        -Dsonar.sources=src \
-                        -Dsonar.host.url=$SONAR_HOST_URL \
-                        -Dsonar.login=$SONAR_AUTH_TOKEN
-                    '''
-                }
-            }
-        }
-
-        stage('Quality Gate') {
-            steps {
-                echo 'checking SonarQube quality gate...'
-                timeout(time: 2, unit: 'MINUTES') {
-                    waitForQualityGate abortPipeline: true
-                }
-            }
-        }
-    }
-
-    post {
-        success {
-            echo 'Pipeline completed successfully — build, lint, and SonarQube passed!'
-        }
-        failure {
-            echo 'Pipeline failed. Check the logs above for details.'
-        }
-    }
-}
+            
+        
